@@ -27,6 +27,8 @@ function makeDemo(storage) {
     .map(page => ({dataset: {page}, classList: {toggle() {}}}));
   const content = {innerHTML: '', addEventListener(type, fn) { listeners[`content:${type}`] = fn; }};
   const values = {};
+  const filterValues = {};
+  const stockTable = {innerHTML: ''};
   const node = () => ({textContent: '', innerHTML: '', hidden: false, addEventListener(type, fn) { listeners[type] = fn; }});
   const nodes = new Map([
     ['#page-content', content], ['#today-date', node()], ['#breadcrumb-current', node()],
@@ -35,8 +37,9 @@ function makeDemo(storage) {
     ['#dialog-submit', node()], ['#dialog-eyebrow', node()],
     ['#toast-region', {append(element) { toasts.push(element.textContent); }}]
   ]);
+  nodes.set('#stock-table-body', stockTable);
   const document = {
-    querySelector(selector) { return nodes.get(selector) || null; },
+    querySelector(selector) { return nodes.get(selector) || (selector in filterValues ? {value: filterValues[selector]} : null); },
     querySelectorAll(selector) { return selector === '[data-page]' ? nav : []; },
     addEventListener(type, fn) { listeners[`document:${type}`] = fn; },
     createElement() { return {className: '', textContent: ''}; }
@@ -54,6 +57,8 @@ function makeDemo(storage) {
     title: nodes.get('#dialog-title'),
     submitButton: nodes.get('#dialog-submit'),
     setValues(next) { Object.assign(values, next); },
+    chooseWarehouse(id) { filterValues['#warehouse-filter'] = id; listeners['content:input']({target: {id: 'warehouse-filter'}}); },
+    stockRows() { return stockTable.innerHTML; },
     clickPage(page) {
       listeners['document:click']({preventDefault() {}, target: {closest(selector) {
         return selector === '[data-page]' ? {dataset: {page}} : null;
@@ -100,26 +105,26 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.setValues({lot: 'LOT-260915-02', qty: '30', partner: '測試客戶', operator: '林志明'});
   demo.submit();
   demo.clickPage('inventory');
-  assert.match(demo.content.innerHTML, /可用庫存 1,605 箱/);
+  assert.match(demo.content.innerHTML, /可用庫存 1,623 箱/);
 
   demo.clickAction('inbound');
   demo.setValues({name: '測試新品', category: '肉品', qty: '10', batch: 'T260929-A', expiry: '2027-01-01', location: 'B-02-01', partner: '測試供應商', temp: '-20.5', reason: ''});
   demo.submit();
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /測試新品/);
-  assert.match(demo.content.innerHTML, /可用庫存 1,615 箱/);
+  assert.match(demo.content.innerHTML, /可用庫存 1,633 箱/);
 
   demo.clickAction('scrap');
   demo.setValues({lot: 'LOT-260901-07', qty: '6', reason: '腐爛／變質', operator: '林志明'});
   demo.submit();
   demo.clickPage('inventory');
-  assert.match(demo.content.innerHTML, /可用庫存 1,609 箱/);
+  assert.match(demo.content.innerHTML, /可用庫存 1,627 箱/);
 
   demo.clickAction('stocktake');
   demo.setValues({lot: 'LOT-260901-07', qty: '80', reason: '例行盤點差異', operator: '林志明'});
   demo.submit();
   demo.clickPage('inventory');
-  assert.match(demo.content.innerHTML, /可用庫存 1,603 箱/);
+  assert.match(demo.content.innerHTML, /可用庫存 1,621 箱/);
   assert.ok(demo.toasts.at(-1).includes('盤點已確認'));
 });
 
@@ -140,4 +145,42 @@ test('inventory changes persist across reloads and are traceable to their source
   reloaded.clickAction('detail', newLot.id);
   assert.match(reloaded.body.innerHTML, /收貨驗收/);
   assert.match(reloaded.body.innerHTML, /IN-/);
+});
+
+test('two-warehouse acceptance scenario supports receipt, loss count, earliest receipt picking and relocation', () => {
+  const demo = makeDemo();
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /竹南冷凍倉庫/);
+  assert.match(demo.content.innerHTML, /竹南第二冷凍倉庫/);
+  assert.match(demo.content.innerHTML, /高麗菜/);
+  assert.match(demo.content.innerHTML, /id="warehouse-filter"/);
+  demo.chooseWarehouse('WH-SECOND');
+  assert.match(demo.stockRows(), /CABBAGE-260915/);
+  assert.doesNotMatch(demo.stockRows(), /CABBAGE-260901/);
+  demo.chooseWarehouse('全部倉庫');
+
+  demo.clickAction('inbound');
+  assert.match(demo.body.innerHTML, /name="inboundAt" type="datetime-local"/);
+  assert.match(demo.body.innerHTML, /name="warehouseId"/);
+  demo.setValues({name: '高麗菜', category: '蔬菜', qty: '2', batch: 'CABBAGE-TEST', expiry: '2027-01-01', location: 'B-08-01', warehouseId: 'WH-SECOND', inboundAt: '2026-09-29T08:00', partner: '竹南供應商', temp: '-20', reason: '收貨'});
+  demo.submit();
+
+  demo.clickAction('stocktake');
+  demo.setValues({lot: 'LOT-CABBAGE-OLD', qty: '7', reason: '腐爛／不可售', operator: '林志明'});
+  demo.submit();
+  demo.clickAction('outbound');
+  assert.ok(demo.body.innerHTML.indexOf('CABBAGE-260901') < demo.body.innerHTML.indexOf('CABBAGE-260915'), 'earlier received cabbage batch should be offered first');
+  demo.setValues({lot: 'LOT-CABBAGE-OLD', qty: '1', partner: '客戶甲', operator: '林志明'});
+  demo.submit();
+
+  demo.clickAction('move');
+  demo.setValues({lot: 'LOT-CABBAGE-OLD', location: 'A-05-03', reason: '出貨後整理', operator: '林志明'});
+  demo.submit();
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /A-05-03/);
+  assert.match(demo.content.innerHTML, /可用庫存 1,653 箱/);
+  demo.clickAction('detail', 'LOT-CABBAGE-OLD');
+  assert.match(demo.body.innerHTML, /移庫/);
+  assert.match(demo.body.innerHTML, /出庫/);
+  assert.match(demo.body.innerHTML, /盤點調整/);
 });
