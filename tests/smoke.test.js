@@ -7,6 +7,18 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const appSource = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const technicalPlan = fs.readFileSync(path.join(root, 'docs', '技術方案.md'), 'utf8');
+
+test('technical plan maps the MVP requirements to an implementable stack', () => {
+  for (const technology of ['Vue 3', 'TypeScript', 'Vite', 'NestJS', 'PostgreSQL', 'Prisma', 'Docker Compose']) {
+    assert.ok(technicalPlan.includes(technology), `technical plan should include ${technology}`);
+  }
+  for (const requirement of ['FEFO', '庫存異動', '盤點差異', '報廢', 'CSV', '人工登記']) {
+    assert.ok(technicalPlan.includes(requirement), `technical plan should address ${requirement}`);
+  }
+  assert.match(technicalPlan, /記憶體中/);
+  assert.match(technicalPlan, /並行保護/);
+});
 
 function makeDemo() {
   const listeners = {};
