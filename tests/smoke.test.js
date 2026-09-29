@@ -20,7 +20,7 @@ test('technical plan maps the MVP requirements to an implementable stack', () =>
   assert.match(technicalPlan, /並行保護/);
 });
 
-function makeDemo() {
+function makeDemo(storage) {
   const listeners = {};
   const toasts = [];
   const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'reports', 'settings']
@@ -44,7 +44,7 @@ function makeDemo() {
   class MockFormData {
     constructor() { this.entries = () => Object.entries(values); }
   }
-  const context = {document, FormData: MockFormData, setTimeout() {}, URL, Blob, Intl, Date, Number, String, Object};
+  const context = {document, FormData: MockFormData, setTimeout() {}, URL, Blob, Intl, Date, Number, String, Object, localStorage: storage};
   vm.runInNewContext(appSource, context, {filename: 'app.js'});
   return {
     content,
@@ -121,4 +121,23 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,603 箱/);
   assert.ok(demo.toasts.at(-1).includes('盤點已確認'));
+});
+
+test('inventory changes persist across reloads and are traceable to their source', () => {
+  const values = new Map();
+  const storage = {getItem(key) { return values.get(key) ?? null; }, setItem(key, value) { values.set(key, value); }};
+  const demo = makeDemo(storage);
+  demo.clickAction('inbound');
+  demo.setValues({name: '可追溯測試品', category: '肉品', qty: '4', batch: 'TRACE-01', expiry: '2027-01-01', location: 'A-09-01', partner: '供應商甲', temp: '-20', reason: '收貨驗收'});
+  demo.submit();
+  assert.ok(values.has('shuangxu-wms-v1'), 'successful operations should be saved locally');
+
+  const reloaded = makeDemo(storage);
+  reloaded.clickPage('inventory');
+  assert.match(reloaded.content.innerHTML, /可追溯測試品/);
+  const state = JSON.parse(values.get('shuangxu-wms-v1'));
+  const newLot = state.stock.find(item => item.name === '可追溯測試品');
+  reloaded.clickAction('detail', newLot.id);
+  assert.match(reloaded.body.innerHTML, /收貨驗收/);
+  assert.match(reloaded.body.innerHTML, /IN-/);
 });
