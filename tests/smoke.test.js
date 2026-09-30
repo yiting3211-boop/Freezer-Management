@@ -24,7 +24,7 @@ test('technical plan maps the MVP requirements to an implementable stack', () =>
 function makeDemo(storage) {
   const listeners = {};
   const toasts = [];
-  const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'reports', 'settings']
+  const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'field', 'locations', 'reports', 'settings']
     .map(page => ({dataset: {page}, classList: {toggle() {}}}));
   const content = {innerHTML: '', addEventListener(type, fn) { (listeners[`content:${type}`] ||= []).push(fn); }};
   const values = {};
@@ -79,7 +79,7 @@ test('demo provides its local assets and core navigation', () => {
   assert.match(html, /href="styles\.css"/);
   assert.match(html, /src="inventory\.js"/);
   assert.match(html, /src="app\.js"/);
-  for (const page of ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'reports']) {
+  for (const page of ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'field', 'locations', 'reports']) {
     assert.match(html, new RegExp(`data-page="${page}"`));
   }
   const demo = makeDemo();
@@ -92,12 +92,23 @@ test('demo provides its local assets and core navigation', () => {
   demo.chooseWarehouse('WH-SECOND');
   assert.equal(demo.topWarehouse.textContent, '竹南第二冷凍倉庫');
   demo.chooseWarehouse('全部倉庫');
+  demo.clickPage('field');
+  assert.match(demo.content.innerHTML, /現場作業已完成/);
+  demo.clickPage('locations');
+  assert.equal(demo.topWarehouse.textContent, '竹南冷凍倉庫');
+  assert.match(demo.content.innerHTML, /A-01-01/);
+  assert.match(demo.content.innerHTML, /slot-used/);
+  demo.clickAction('location-detail', 'A-01-01');
+  assert.equal(demo.title.textContent, 'A-01-01');
+  assert.match(demo.body.innerHTML, /CABBAGE-260901/);
+  demo.clickPage('inventory');
   demo.clickAction('detail', 'LOT-260912-04');
   assert.equal(demo.title.textContent, '去骨雞腿排');
   demo.clickAction('inbound');
   assert.equal(demo.submitButton.hidden, false, 'action button should return after opening a read-only detail dialog');
   assert.match(demo.body.innerHTML, /name="temp" type="number" value="-20\.5"\s+required/, 'negative receiving temperature must be accepted');
   assert.match(demo.body.innerHTML, /id="inbound-fifo-hint"/);
+  assert.match(demo.body.innerHTML, /inbound-location-recommendation/);
   assert.equal((appSource.match(/else if\(mode==='start-count'\)/g) || []).length, 1);
   assert.equal((appSource.match(/else if\(mode==='record-count'\)/g) || []).length, 1);
   assert.equal((appSource.match(/else if\(mode==='confirm-count'\)/g) || []).length, 1);
@@ -128,6 +139,9 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.clickPage('outbound');
   const taskId = demo.content.innerHTML.match(/data-task-id="([^"]+)"/)?.[1];
   assert.ok(taskId, 'submitted outbound should produce visible pick cards');
+  demo.clickPage('field');
+  assert.match(demo.content.innerHTML, /本次取貨/);
+  assert.doesNotMatch(demo.content.innerHTML, /data-task-id="[^"]+"[\s\S]*data-task-id="[^"]+"/, 'field mode should show one current task only');
   demo.clickAction('confirm-pick', taskId, 0);
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,623 箱/);

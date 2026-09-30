@@ -122,3 +122,15 @@ test('long-storage and near-expiry warnings use configurable day thresholds', ()
   assert.equal(Inventory.isExpiringSoon(item, now), true);
   assert.equal(Inventory.isExpiringSoon({...item, expiry:'2026-12-01'}, now), false);
 });
+
+test('location map marks empty, occupied and counting bins and recommends an empty slot', () => {
+  const state = fixture();
+  state.stock[0].location = 'A-01-01';
+  state.stock[1].location = 'A-01-02';
+  state.countRows.push({lotId:'old-late', status:'待確認'});
+  const cells = Inventory.locationMap(state.stock, state.countRows, 'W', 'A');
+  assert.equal(cells.find(cell => cell.location === 'A-01-01').status, '使用中');
+  assert.equal(cells.find(cell => cell.location === 'A-01-02').status, '盤點中');
+  assert.equal(cells.find(cell => cell.location === 'A-01-03').status, '空位');
+  assert.equal(Inventory.recommendLocation(state.stock, 'W'), 'A-01-03');
+});

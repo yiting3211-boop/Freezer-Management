@@ -46,6 +46,22 @@
     return days >= 0 && days <= EXPIRY_WARNING_DAYS;
   }
 
+  function locationMap(stock, countRows, warehouseId, zone) {
+    const zones = zone ? [zone] : ['A', 'B', 'C'];
+    const cells = [];
+    for (const area of zones) for (let row = 1; row <= 4; row++) for (let bay = 1; bay <= 6; bay++) {
+      const location = `${area}-${String(row).padStart(2, '0')}-${String(bay).padStart(2, '0')}`;
+      const lots = stock.filter(item => item.warehouseId === warehouseId && item.location === location);
+      const counting = lots.some(item => isCountLocked(countRows, item.id));
+      cells.push({location, zone: area, lots, status: counting ? '盤點中' : lots.length ? '使用中' : '空位'});
+    }
+    return cells;
+  }
+
+  function recommendLocation(stock, warehouseId) {
+    return locationMap(stock, [], warehouseId).find(cell => cell.status === '空位')?.location || null;
+  }
+
   function recordChange(state, {lot, type, quantity, reason, operator = '林志明', documentId, time}) {
     const entry = {id: `${type}-${Date.now()}-${state.audit.length}`, lot, type, quantity,
       reason, operator, documentId, time: time || new Date().toLocaleString('zh-TW')};
@@ -254,5 +270,5 @@
 
   return {PICK_TASK_TIMEOUT_MS, LONG_STORAGE_DAYS, EXPIRY_WARNING_DAYS, isCountLocked, planPick, earliestLot,
     isLongStored, isExpiringSoon, recordChange, receive, dispatch, createPickTask, confirmPick,
-    isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, scrap, move};
+    locationMap, recommendLocation, isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, scrap, move};
 });
