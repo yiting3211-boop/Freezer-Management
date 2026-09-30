@@ -107,7 +107,12 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   assert.ok(demo.toasts.at(-1).includes('可用庫存不足'));
   assert.equal(demo.dialog.open, true);
 
-  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', confirmed: 'yes', qty: '30', partner: '測試客戶', operator: '林志明'});
+  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', confirmed: 'yes', pickConfirmation: 'WRONG-BATCH@B-03-01', qty: '30', partner: '測試客戶', operator: '林志明'});
+  demo.submit();
+  assert.ok(demo.toasts.at(-1).includes('揀貨清單不符'));
+  assert.equal(demo.dialog.open, true, 'inventory must not be deducted when scanned batch or location differs');
+
+  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', confirmed: 'yes', pickConfirmation: 'B260915-F@B-03-01', qty: '30', partner: '測試客戶', operator: '林志明'});
   demo.submit();
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,623 箱/);
@@ -192,7 +197,7 @@ test('two-warehouse acceptance scenario supports receipt, loss count, earliest r
   demo.submit();
   demo.clickAction('outbound');
   assert.match(demo.body.innerHTML, /最早批次 CABBAGE-260901/, 'earlier received cabbage batch should be selected first');
-  demo.setValues({product: '高麗菜', warehouseId: 'WH-NAN', confirmed: 'yes', qty: '1', partner: '客戶甲', operator: '林志明'});
+  demo.setValues({product: '高麗菜', warehouseId: 'WH-NAN', confirmed: 'yes', pickConfirmation: 'CABBAGE-260901@A-01-01', qty: '1', partner: '客戶甲', operator: '林志明'});
   demo.submit();
 
   demo.clickAction('move');
@@ -205,4 +210,36 @@ test('two-warehouse acceptance scenario supports receipt, loss count, earliest r
   assert.match(demo.body.innerHTML, /移庫/);
   assert.match(demo.body.innerHTML, /出庫/);
   assert.match(demo.body.innerHTML, /盤點調整/);
+});
+
+test('daily warehouse count locks stock until physical counts are submitted and approved', () => {
+  const demo = makeDemo();
+  demo.clickAction('start-count');
+  assert.match(demo.body.innerHTML, /盤點倉庫/);
+  demo.setValues({warehouseId: 'WH-NAN', operator: '林志明'});
+  demo.submit();
+  assert.ok(demo.toasts.at(-1).includes('盤點任務已建立'));
+
+  demo.clickAction('outbound');
+  assert.doesNotMatch(demo.body.innerHTML, /CABBAGE-260901/, 'locked warehouse batches must not be offered for picking');
+  demo.clickPage('stocktake');
+  assert.match(demo.content.innerHTML, /待實盤/);
+  const countId = demo.content.innerHTML.match(/data-action="record-count" data-id="([^"]+)"/)?.[1];
+  assert.ok(countId, 'daily count should create an actionable task for each stock batch');
+
+  demo.clickAction('record-count', countId);
+  demo.setValues({qty: '0', reason: '腐爛／不可售', operator: '林志明'});
+  demo.submit();
+  assert.ok(demo.toasts.at(-1).includes('覆核前庫存維持原數量'));
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /可用庫存 1,653 箱/, 'count submission alone must not change book stock');
+
+  demo.clickPage('stocktake');
+  const reviewId = demo.content.innerHTML.match(/data-action="confirm-count" data-id="([^"]+)"/)?.[1];
+  assert.ok(reviewId, 'submitted count should be routed to supervisor review');
+  demo.clickAction('confirm-count', reviewId);
+  demo.submit();
+  assert.ok(demo.toasts.at(-1).includes('盤點已確認'));
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /可用庫存 1,649 箱/, 'approved actual count should reconcile the inventory quantity');
 });
