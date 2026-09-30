@@ -87,6 +87,8 @@ test('demo provides its local assets and core navigation', () => {
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /庫存明細/);
   assert.match(demo.content.innerHTML, /去骨雞腿排/);
+  assert.match(demo.content.innerHTML, /最早入庫批次 · A-01-01/);
+  assert.match(demo.content.innerHTML, /久放/);
   demo.chooseWarehouse('WH-SECOND');
   assert.equal(demo.topWarehouse.textContent, '竹南第二冷凍倉庫');
   demo.chooseWarehouse('全部倉庫');
@@ -95,6 +97,7 @@ test('demo provides its local assets and core navigation', () => {
   demo.clickAction('inbound');
   assert.equal(demo.submitButton.hidden, false, 'action button should return after opening a read-only detail dialog');
   assert.match(demo.body.innerHTML, /name="temp" type="number" value="-20\.5"\s+required/, 'negative receiving temperature must be accepted');
+  assert.match(demo.body.innerHTML, /id="inbound-fifo-hint"/);
   assert.equal((appSource.match(/else if\(mode==='start-count'\)/g) || []).length, 1);
   assert.equal((appSource.match(/else if\(mode==='record-count'\)/g) || []).length, 1);
   assert.equal((appSource.match(/else if\(mode==='confirm-count'\)/g) || []).length, 1);
@@ -212,6 +215,7 @@ test('two-warehouse acceptance scenario supports receipt, loss count, earliest r
   demo.submit();
   demo.clickAction('outbound');
   assert.match(demo.body.innerHTML, /最早批次 CABBAGE-260901/, 'earlier received cabbage batch should be selected first');
+  assert.match(demo.body.innerHTML, /2026-09-01/, 'outbound selection should show the oldest lot receipt time');
   demo.setValues({product: '高麗菜', warehouseId: 'WH-NAN', qty: '1', partner: '客戶甲', operator: '林志明'});
   demo.submit();
   demo.clickPage('outbound');

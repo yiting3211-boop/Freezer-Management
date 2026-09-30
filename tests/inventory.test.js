@@ -97,3 +97,28 @@ test('open tasks reserve planned quantities so parallel pickers cannot oversubsc
   const second = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:1, now:2000});
   assert.equal(second.ok, false);
 });
+
+test('earliest lot uses receipt time then expiry, and alternate picks require a reason', () => {
+  const state = fixture(); state.pickTasks = []; state.workRecords = [];
+  assert.equal(Inventory.earliestLot(state.stock, state.countRows, '高麗菜', 'W').id, 'old-early');
+  const {task} = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:1, now:1000});
+  const denied = Inventory.confirmPick(state, {taskId:task.id, allocationIndex:0, actualLotId:'new', now:2000});
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /未依 FIFO/);
+  const accepted = Inventory.confirmPick(state, {taskId:task.id, allocationIndex:0, actualLotId:'new', deviationReason:'舊批次外箱破損', now:3000});
+  assert.equal(accepted.complete, true);
+  assert.equal(state.stock.find(item => item.id === 'old-early').qty, 3);
+  assert.equal(state.stock.find(item => item.id === 'new').qty, 3);
+  assert.match(state.audit.find(row => row.lot === 'new').reason, /未依 FIFO：舊批次外箱破損/);
+  assert.match(state.workRecords.find(row => row.id === task.id).batch, /未依 FIFO/);
+});
+
+test('long-storage and near-expiry warnings use configurable day thresholds', () => {
+  const now = new Date('2026-10-01T12:00:00').getTime();
+  const item = {inboundAt:'2026-09-01T12:00:00', expiry:'2026-10-20'};
+  assert.equal(Inventory.LONG_STORAGE_DAYS, 21);
+  assert.equal(Inventory.EXPIRY_WARNING_DAYS, 30);
+  assert.equal(Inventory.isLongStored(item, now), true);
+  assert.equal(Inventory.isExpiringSoon(item, now), true);
+  assert.equal(Inventory.isExpiringSoon({...item, expiry:'2026-12-01'}, now), false);
+});

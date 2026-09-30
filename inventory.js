@@ -5,6 +5,8 @@
   if (root) root.Inventory = api;
 })(typeof globalThis === 'object' ? globalThis : this, function () {
   const PICK_TASK_TIMEOUT_MS = 30 * 60 * 1000;
+  const LONG_STORAGE_DAYS = 21;
+  const EXPIRY_WARNING_DAYS = 30;
   function isCountLocked(countRows, lotId) {
     return countRows.some(row => row.lotId === lotId && ['待盤點', '待確認'].includes(row.status));
   }
@@ -24,6 +26,24 @@
       remaining -= take;
       return [{item, qty: take}];
     });
+  }
+
+  function earliestLot(stock, countRows, product, warehouseId) {
+    return stock.filter(item => item.name === product && item.warehouseId === warehouseId && item.qty > 0 &&
+      item.status !== '待報廢' && !isCountLocked(countRows, item.id))
+      .sort((a, b) => String(a.inboundAt || '').localeCompare(String(b.inboundAt || '')) ||
+        String(a.expiry || '').localeCompare(String(b.expiry || '')))[0] || null;
+  }
+
+  function isLongStored(item, now = Date.now()) {
+    const received = new Date(item.inboundAt || 0).getTime();
+    return Number.isFinite(received) && received > 0 && now - received > LONG_STORAGE_DAYS * 86400000;
+  }
+
+  function isExpiringSoon(item, now = Date.now()) {
+    if (!item.expiry) return false;
+    const days = Math.ceil((new Date(`${item.expiry}T00:00:00`).getTime() - new Date(now).setHours(0,0,0,0)) / 86400000);
+    return days >= 0 && days <= EXPIRY_WARNING_DAYS;
   }
 
   function recordChange(state, {lot, type, quantity, reason, operator = '林志明', documentId, time}) {
@@ -102,11 +122,23 @@
     return ['揀貨中', '已揀貨待確認'].includes(task.status) && now - Number(task.createdAt) >= PICK_TASK_TIMEOUT_MS;
   }
 
-  function confirmPick(state, {taskId, allocationIndex, now = Date.now()}) {
+  function confirmPick(state, {taskId, allocationIndex, actualLotId, deviationReason = '', now = Date.now()}) {
     const task = state.pickTasks.find(row => row.id === taskId);
     if (!task || !['揀貨中', '已揀貨待確認'].includes(task.status)) return {ok: false, error: '此揀貨任務已處理或不存在'};
     const allocation = task.allocations[Number(allocationIndex)];
     if (!allocation) return {ok: false, error: '找不到此批揀貨項目'};
+    const pickedLot = state.stock.find(item => item.id === (actualLotId || allocation.lotId));
+    if (!pickedLot || pickedLot.name !== task.product || pickedLot.warehouseId !== task.warehouseId ||
+      pickedLot.qty < allocation.qty || isCountLocked(state.countRows, pickedLot.id))
+      return {ok: false, error: '所選實際批次無法揀貨，請重新確認庫存'};
+    const deviated = pickedLot.id !== allocation.lotId;
+    if (deviated && !deviationReason.trim())
+      return {ok: false, error: '未依 FIFO 揀貨，請填寫原因後再確認'};
+    allocation.pickedLotId = pickedLot.id;
+    allocation.pickedBatch = pickedLot.batch;
+    allocation.pickedLocation = pickedLot.location;
+    allocation.pickedBookQty = pickedLot.qty;
+    allocation.deviationReason = deviated ? deviationReason.trim() : '';
     allocation.confirmed = true;
     const remaining = task.allocations.filter(row => !row.confirmed).length;
     if (remaining) {
@@ -115,9 +147,11 @@
       if (record) record.status = task.status;
       return {ok: true, complete: false, task, remaining};
     }
-    const plan = task.allocations.map(row => ({item: state.stock.find(item => item.id === row.lotId), qty: row.qty}));
-    if (plan.some(({item, qty}, index) => !item || isCountLocked(state.countRows, item.id) ||
-      item.qty < qty || item.qty !== task.allocations[index].bookQty)) {
+    const plan = task.allocations.map(row => ({item: state.stock.find(item => item.id === (row.pickedLotId || row.lotId)), qty: row.qty}));
+    const requestedByLot = new Map();
+    task.allocations.forEach(row => { const id = row.pickedLotId || row.lotId; requestedByLot.set(id, (requestedByLot.get(id) || 0) + row.qty); });
+    if (plan.some(({item}) => !item || isCountLocked(state.countRows, item.id)) ||
+      [...requestedByLot].some(([id, amount]) => { const item = state.stock.find(row => row.id === id), allocationRow = task.allocations.find(row => (row.pickedLotId || row.lotId) === id); return !item || item.qty < amount || item.qty !== allocationRow.pickedBookQty && item.qty !== allocationRow.bookQty; })) {
       allocation.confirmed = false;
       return {ok: false, error: '揀貨期間庫存或盤點狀態已變動，請取消並重新建立出庫單'};
     }
@@ -125,6 +159,12 @@
       quantity: task.quantity, operator: task.operator, partner: task.partner,
       reason: task.reason || '已完成全部批次揀貨確認', documentId: task.id, plan});
     if (!dispatched.ok) { allocation.confirmed = false; return dispatched; }
+    task.allocations.filter(row => row.deviationReason).forEach(row => {
+      const audit = state.audit.find(entry => entry.documentId === task.id && entry.lot === row.pickedLotId);
+      if (audit) audit.reason = `未依 FIFO：${row.deviationReason}`;
+    });
+    const deviations = task.allocations.filter(row => row.deviationReason);
+    if (recordFor(state, task.id) && deviations.length) recordFor(state, task.id).batch += '（未依 FIFO）';
     task.status = '已完成';
     task.completedAt = now;
     const record = state.workRecords.find(row => row.id === task.id);
@@ -135,6 +175,9 @@
   function startCount(state, {warehouseId, operator = '林志明', date = new Date().toISOString().slice(0, 10), idPrefix = 'ST'}) {
     const lots = state.stock.filter(item => item.warehouseId === warehouseId);
     if (!warehouseId || !lots.length) return {ok: false, error: '所選倉庫沒有可盤點的批次'};
+    if ((state.pickTasks || []).some(task => ['揀貨中', '已揀貨待確認'].includes(task.status) &&
+      task.allocations.some(row => state.stock.find(item => item.id === (row.pickedLotId || row.lotId))?.warehouseId === warehouseId)))
+      return {ok: false, error: '此倉庫有未完成揀貨任務，請先處理後再盤點'};
     if (state.countRows.some(row => row.sessionId && row.warehouseId === warehouseId && row.date === date &&
       ['待盤點', '待確認'].includes(row.status))) return {ok: false, error: '此倉庫今天已有尚未完成的盤點任務'};
     if (lots.some(item => isCountLocked(state.countRows, item.id))) return {ok: false, error: '倉庫中有其他未完成的盤點單'};
@@ -207,6 +250,9 @@
     return {ok: true, item, previous, documentId: doc};
   }
 
-  return {PICK_TASK_TIMEOUT_MS, isCountLocked, planPick, recordChange, receive, dispatch, createPickTask, confirmPick,
+  function recordFor(state, id) { return state.workRecords.find(row => row.id === id); }
+
+  return {PICK_TASK_TIMEOUT_MS, LONG_STORAGE_DAYS, EXPIRY_WARNING_DAYS, isCountLocked, planPick, earliestLot,
+    isLongStored, isExpiringSoon, recordChange, receive, dispatch, createPickTask, confirmPick,
     isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, scrap, move};
 });
