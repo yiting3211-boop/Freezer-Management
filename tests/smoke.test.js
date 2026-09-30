@@ -113,7 +113,7 @@ test('demo provides its local assets and core navigation', () => {
   assert.equal(demo.navBatchCount.textContent, '11');
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /庫存明細/);
-  assert.match(demo.content.innerHTML, /去骨雞腿排/);
+  assert.match(demo.content.innerHTML, /冷凍甜玉米粒/);
   assert.match(demo.content.innerHTML, /最早入庫批次 · A-01-01/);
   assert.match(demo.content.innerHTML, /久放/);
   demo.chooseWarehouse('WH-SECOND');
@@ -130,7 +130,7 @@ test('demo provides its local assets and core navigation', () => {
   assert.match(demo.body.innerHTML, /CABBAGE-260901/);
   demo.clickPage('inventory');
   demo.clickAction('detail', 'LOT-260912-04');
-  assert.equal(demo.title.textContent, '去骨雞腿排');
+  assert.equal(demo.title.textContent, '冷凍甜玉米粒');
   demo.clickAction('inbound');
   assert.equal(demo.submitButton.hidden, false, 'action button should return after opening a read-only detail dialog');
   assert.match(demo.body.innerHTML, /name="temp" type="number" value="-20\.5"\s+required/, 'negative receiving temperature must be accepted');
@@ -151,10 +151,29 @@ test('basic data counts come from inventory and records, not fixed demo totals',
   assert.doesNotMatch(demo.content.innerHTML, /128 項|36 家|12 個儲位|使用者與角色 · 8 位/);
 });
 
+test('inventory screens show produce instead of meat products or categories', () => {
+  const demo = makeDemo();
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /冷凍甜玉米粒|冷凍南瓜塊|紅蘿蔔丁/);
+  assert.doesNotMatch(demo.content.innerHTML, /去骨雞腿排|澳洲穀飼牛五花|紐西蘭羊肩排|肉品|禽肉/);
+});
+
+test('existing browser sample data is updated to the produce catalog', () => {
+  const legacy = {getItem() { return JSON.stringify({
+    stock:[{id:'LOT-260912-04',name:'舊示範品項',category:'舊示範分類',warehouseId:'WH-NAN',inboundAt:'2026-09-01T09:00',qty:10,location:'A-02-04'}],
+    workRecords:[{id:'IN-20260929-008',item:'舊示範品項',status:'已完成'}],
+    activities:[{type:'in',detail:'IN-20260929-008 · 舊示範品項',icon:'↙',text:'完成入庫',time:'09:42',qty:'+ 1 箱'}]
+  }); }};
+  const demo = makeDemo(legacy);
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /冷凍甜玉米粒/);
+  assert.doesNotMatch(demo.content.innerHTML, /舊示範品項|舊示範分類/);
+});
+
 test('reports derive turnover, expiry, loss and category totals from current demo data', () => {
   const demo = makeDemo();
   demo.clickPage('reports');
-  assert.match(demo.content.innerHTML, /408 箱/);
+  assert.match(demo.content.innerHTML, /1,117 箱/);
   assert.match(demo.content.innerHTML, /444 箱/);
   assert.match(demo.content.innerHTML, /效期風險庫存[\s\S]*個有庫存批次將於 30 天內到期/);
   assert.doesNotMatch(demo.content.innerHTML, /18\.6|報廢 6 箱 · 盤點差異 2 箱/);
@@ -205,7 +224,7 @@ test('expiry labels, filters, overview and CSV use calculated dates rather than 
 test('pick tasks can be cancelled from field mode after entering a reason and confirming', () => {
   const demo=makeDemo();
   demo.clickAction('outbound');
-  demo.setValues({product:'澳洲穀飼牛五花',warehouseId:'WH-NAN',qty:'20',partner:'測試客戶',operator:'林志明'});
+  demo.setValues({product:'冷凍南瓜塊',warehouseId:'WH-NAN',qty:'20',partner:'測試客戶',operator:'林志明'});
   demo.submit();
   demo.clickPage('outbound');
   const taskId=demo.content.innerHTML.match(/data-task-id="([^"]+)"/)?.[1];
@@ -239,7 +258,7 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   assert.match(demo.body.innerHTML, /出庫商品/);
   assert.ok(demo.body.innerHTML.indexOf('冷凍藍莓') < demo.body.innerHTML.indexOf('挪威鮭魚切片'), 'outbound options should follow FEFO order');
   assert.doesNotMatch(demo.body.innerHTML, /name="pickConfirmation"|name="confirmed"/, 'outbound should not require manual batch/location entry or an extra checkbox');
-  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', qty: '30', partner: '測試客戶', operator: '林志明'});
+  demo.setValues({product: '冷凍南瓜塊', warehouseId: 'WH-NAN', qty: '30', partner: '測試客戶', operator: '林志明'});
   demo.submit();
   assert.ok(demo.toasts.at(-1).includes('揀貨任務已建立'));
   assert.equal(demo.dialog.open, false);
@@ -247,7 +266,7 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   assert.match(demo.content.innerHTML, /可用庫存 1,653 箱/, 'creating a pick task must not deduct inventory');
 
   demo.clickAction('outbound');
-  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', qty: '999', partner: '測試客戶', operator: '林志明'});
+  demo.setValues({product: '冷凍南瓜塊', warehouseId: 'WH-NAN', qty: '999', partner: '測試客戶', operator: '林志明'});
   demo.submit();
   assert.ok(demo.toasts.at(-1).includes('可用庫存不足'));
   assert.equal(demo.dialog.open, true);
@@ -264,7 +283,7 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   assert.match(demo.content.innerHTML, /可用庫存 1,623 箱/);
 
   demo.clickAction('inbound');
-  demo.setValues({name: '測試新品', category: '肉品', qty: '10', batch: 'T260929-A', expiry: '2027-01-01', location: 'B-02-01', partner: '測試供應商', temp: '-20.5', reason: ''});
+  demo.setValues({name: '測試新品', category: '蔬菜', qty: '10', batch: 'T260929-A', expiry: '2027-01-01', location: 'B-02-01', partner: '測試供應商', temp: '-20.5', reason: ''});
   demo.submit();
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /測試新品/);
@@ -319,7 +338,7 @@ test('inventory changes persist across reloads and are traceable to their source
   const storage = {getItem(key) { return values.get(key) ?? null; }, setItem(key, value) { values.set(key, value); }};
   const demo = makeDemo(storage);
   demo.clickAction('inbound');
-  demo.setValues({name: '可追溯測試品', category: '肉品', qty: '4', batch: 'TRACE-01', expiry: '2027-01-01', location: 'A-09-01', partner: '供應商甲', temp: '-20', reason: '收貨驗收'});
+  demo.setValues({name: '可追溯測試品', category: '蔬菜', qty: '4', batch: 'TRACE-01', expiry: '2027-01-01', location: 'A-09-01', partner: '供應商甲', temp: '-20', reason: '收貨驗收'});
   demo.submit();
   assert.ok(values.has('shuangxu-wms-v1'), 'successful operations should be saved locally');
 
