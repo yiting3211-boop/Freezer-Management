@@ -74,18 +74,22 @@
     const amount = Number(qty);
     if (!name || !batch || !location || !warehouseId || !Number.isFinite(amount) || amount <= 0)
       return {ok: false, error: '入庫資料不完整或數量無效'};
+    const normalizedLocation = location.trim();
+    const receivedAt = String(inboundAt || new Date().toISOString().slice(0, 16)).slice(0, 16);
     let item = state.stock.find(row => row.name.toLowerCase() === name.trim().toLowerCase() &&
-      row.batch.toLowerCase() === batch.trim().toLowerCase() && row.warehouseId === warehouseId);
+      row.batch.toLowerCase() === batch.trim().toLowerCase() && row.warehouseId === warehouseId &&
+      row.location === normalizedLocation && String(row.inboundAt || '').slice(0, 16) === receivedAt);
     const created = !item;
     if (item) item.qty += amount;
     else {
-      item = {id: id || `LOT-${Date.now()}`, sku: sku || '', name: name.trim(), category, batch: batch.trim(),
-        location: location.trim(), qty: amount, unit, expiry: expiry || '', status: '正常', temp,
-        warehouseId, inboundAt: inboundAt || new Date().toISOString().slice(0, 16)};
+      const requestedId = id || `LOT-${Date.now()}`;
+      let uniqueId = requestedId, suffix = 2;
+      while (state.stock.some(row => row.id === uniqueId)) uniqueId = `${requestedId}-${suffix++}`;
+      item = {id: uniqueId, sku: sku || '', name: name.trim(), category, batch: batch.trim(),
+        location: normalizedLocation, qty: amount, unit, expiry: expiry || '', status: '正常', temp,
+        warehouseId, inboundAt: receivedAt};
       state.stock.unshift(item);
     }
-    item.location = location.trim();
-    item.inboundAt = inboundAt || item.inboundAt || new Date().toISOString().slice(0, 16);
     item.status = item.status === '待報廢' ? '正常' : item.status;
     item.temp = temp;
     const doc = documentId || `IN-${Date.now()}`;
