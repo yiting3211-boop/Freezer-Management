@@ -22,7 +22,7 @@ test('technical plan maps the MVP requirements to an implementable stack', () =>
   assert.match(technicalPlan, /並行保護/);
 });
 
-function makeDemo(storage) {
+function makeDemo(storage, {now} = {}) {
   const listeners = {};
   const toasts = [];
   const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'stocktake-report', 'field', 'locations', 'reports', 'settings']
@@ -50,7 +50,11 @@ function makeDemo(storage) {
   class MockFormData {
     constructor() { this.entries = () => Object.entries(values); }
   }
-  const context = {document, Inventory, FormData: MockFormData, setTimeout() {}, URL:{createObjectURL(blob){exportedBlob=blob;return 'blob:test'},revokeObjectURL(){}}, Blob, Intl, Date, Number, String, Object, localStorage: storage};
+  const DemoDate = now === undefined ? Date : class extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return new Date(now).getTime(); }
+  };
+  const context = {document, Inventory, FormData: MockFormData, setTimeout() {}, URL:{createObjectURL(blob){exportedBlob=blob;return 'blob:test'},revokeObjectURL(){}}, Blob, Intl, Date:DemoDate, Number, String, Object, localStorage: storage};
   vm.runInNewContext(appSource, context, {filename: 'app.js'});
   return {
     content,
@@ -76,9 +80,19 @@ function makeDemo(storage) {
       }}});
     },
     submit() { listeners.submit({preventDefault() {}, currentTarget: {}}); },
-    exportedCsv() { return exportedBlob?.text(); }
+    exportedCsv() { return exportedBlob?.text(); },
+    todayRecords() { return context.todayWorkRecords(); }
   };
 }
+
+test('today work records use Taiwan local date across the UTC date boundary', () => {
+  const storage = {getItem() { return JSON.stringify({workRecords:[
+    {id:'IN-TODAY', recordedAt:'2026-09-29T16:59:00.000Z'},
+    {id:'IN-YESTERDAY', recordedAt:'2026-09-29T15:59:00.000Z'}
+  ]}); }};
+  const demo = makeDemo(storage, {now:'2026-09-29T17:00:00.000Z'});
+  assert.deepEqual(Array.from(demo.todayRecords(), row=>row.id), ['IN-TODAY']);
+});
 
 test('demo provides its local assets and core navigation', () => {
   assert.match(html, /href="styles\.css"/);
@@ -139,7 +153,7 @@ test('reports derive turnover, expiry, loss and category totals from current dem
 });
 
 test('expiry labels, filters, overview and CSV use calculated dates rather than stored status', async () => {
-  const futureExpiry=new Date(Date.now()+20*86400000).toISOString().slice(0,10);
+  const futureExpiry=Inventory.localDateString(new Date(Date.now()+20*86400000));
   const saved={stock:[
     {id:'STALE-EXPIRY',sku:'T-1',name:'舊效期旗標',category:'其他',batch:'OLD-STATUS',location:'A-08-01',qty:2,unit:'箱',expiry:'2099-12-31',status:'即將到期',temp:'-20°C',warehouseId:'WH-NAN',inboundAt:'2026-09-01T08:00'},
     {id:'SCRAP-STATUS',sku:'T-2',name:'已報廢品',category:'其他',batch:'SCRAP-01',location:'A-08-02',qty:0,unit:'箱',expiry:'2099-12-31',status:'待報廢',temp:'-20°C',warehouseId:'WH-NAN',inboundAt:'2026-09-01T08:00'}

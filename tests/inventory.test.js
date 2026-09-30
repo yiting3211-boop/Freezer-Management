@@ -2,6 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Inventory = require('../inventory.js');
 
+test('Taiwan date helpers use Asia/Taipei regardless of machine timezone', () => {
+  const taipeiOneAm = new Date('2026-09-29T17:00:00.000Z');
+  assert.equal(Inventory.localDateString(taipeiOneAm), '2026-09-30');
+  assert.equal(Inventory.localDateTimeString(taipeiOneAm), '2026-09-30T01:00');
+});
+
 function fixture() {
   return {stock: [
     {id:'new', name:'高麗菜', warehouseId:'W', qty:4, inboundAt:'2026-09-02', expiry:'2027-01-01', location:'B-2'},

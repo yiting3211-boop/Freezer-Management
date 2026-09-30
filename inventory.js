@@ -7,6 +7,18 @@
   const PICK_TASK_TIMEOUT_MS = 30 * 60 * 1000;
   const LONG_STORAGE_DAYS = 21;
   const EXPIRY_WARNING_DAYS = 30;
+  function localDateParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).formatToParts(date);
+    return Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  }
+  function localDateString(date = new Date()) {
+    const {year, month, day} = localDateParts(date);
+    return `${year}-${month}-${day}`;
+  }
+  function localDateTimeString(date = new Date()) {
+    const {hour, minute} = localDateParts(date);
+    return `${localDateString(date)}T${hour}:${minute}`;
+  }
   function isCountLocked(countRows, lotId) {
     return countRows.some(row => row.lotId === lotId && ['待盤點', '待確認'].includes(row.status));
   }
@@ -75,7 +87,7 @@
     if (!name || !batch || !location || !warehouseId || !Number.isFinite(amount) || amount <= 0)
       return {ok: false, error: '入庫資料不完整或數量無效'};
     const normalizedLocation = location.trim();
-    const receivedAt = String(inboundAt || new Date().toISOString().slice(0, 16)).slice(0, 16);
+    const receivedAt = String(inboundAt || localDateTimeString()).slice(0, 16);
     let item = state.stock.find(row => row.name.toLowerCase() === name.trim().toLowerCase() &&
       row.batch.toLowerCase() === batch.trim().toLowerCase() && row.warehouseId === warehouseId &&
       row.location === normalizedLocation && String(row.inboundAt || '').slice(0, 16) === receivedAt);
@@ -210,7 +222,7 @@
     return {ok:true, task, record};
   }
 
-  function startCount(state, {warehouseId, operator = '林志明', date = new Date().toISOString().slice(0, 10), idPrefix = 'ST'}) {
+  function startCount(state, {warehouseId, operator = '林志明', date = localDateString(), idPrefix = 'ST'}) {
     const lots = state.stock.filter(item => item.warehouseId === warehouseId);
     if (!warehouseId || !lots.length) return {ok: false, error: '所選倉庫沒有可盤點的批次'};
     if ((state.pickTasks || []).some(task => ['揀貨中', '已揀貨待確認'].includes(task.status) &&
@@ -243,7 +255,7 @@
     return {ok: true, row, diff};
   }
 
-  function submitCount(state, {lotId, actualQty, reason, operator = '林志明', date = new Date().toISOString().slice(0, 10)}) {
+  function submitCount(state, {lotId, actualQty, reason, operator = '林志明', date = localDateString()}) {
     const item = state.stock.find(entry => entry.id === lotId), qty = Number(actualQty);
     if (!item || isCountLocked(state.countRows, lotId) || !Number.isFinite(qty) || qty < 0 || !reason)
       return {ok: false, error: '盤點資料無效或此批次已有未完成盤點'};
@@ -267,7 +279,7 @@
     return {ok: true, item, row, diff, audit};
   }
 
-  function submitScrap(state, {lotId, quantity, reason, operator = '林志明', date = new Date().toISOString().slice(0, 10)}) {
+  function submitScrap(state, {lotId, quantity, reason, operator = '林志明', date = localDateString()}) {
     const item = state.stock.find(row => row.id === lotId), qty = Number(quantity);
     if (!item || !Number.isFinite(qty) || qty <= 0 || qty > item.qty || !reason || isCountLocked(state.countRows, lotId))
       return {ok: false, error: '報廢資料無效或批次盤點中'};
@@ -303,7 +315,7 @@
 
   function recordFor(state, id) { return state.workRecords.find(row => row.id === id); }
 
-  return {PICK_TASK_TIMEOUT_MS, LONG_STORAGE_DAYS, EXPIRY_WARNING_DAYS, isCountLocked, planPick, earliestLot,
+  return {PICK_TASK_TIMEOUT_MS, LONG_STORAGE_DAYS, EXPIRY_WARNING_DAYS, localDateString, localDateTimeString, isCountLocked, planPick, earliestLot,
     isLongStored, isExpiringSoon, recordChange, receive, dispatch, createPickTask, confirmPick,
     locationMap, recommendLocation, isPickTaskOverdue, cancelPickTask, startCount, recordCount, submitCount, approveCount, submitScrap, approveScrap, move};
 });
