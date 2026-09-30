@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7f4">
+  <title>霜序 WMS｜冷凍倉儲管理</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="霜序 WMS 首頁">
+        <span class="brand-mark"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M18 4v28M6 11l24 14M6 25l24-14M13 7l5 5 5-5M13 29l5-5 5 5M5 16l7 2-2-7M31 20l-7-2 2 7M5 20l7-2-2 7M31 16l-7 2 2-7"/></svg></span>
+        <span class="brand-copy"><strong>霜序 <span>WMS</span></strong><small>冷凍倉儲管理</small></span>
+      </a>
+      <div class="workspace-switch"><span class="workspace-icon">竹</span><span><b>竹南冷凍公司</b><small>2 個冷凍倉庫 · 台灣</small></span><span class="chevron">⌄</span></div>
+      <div class="nav-label">工作台</div>
+      <nav class="main-nav" aria-label="主選單">
+        <a class="nav-item active" href="#dashboard" data-page="dashboard"><span class="nav-icon">◫</span>倉儲總覽</a>
+        <a class="nav-item" href="#inventory" data-page="inventory"><span class="nav-icon">▤</span>庫存管理<span class="nav-count" id="nav-batch-count"></span></a>
+        <a class="nav-item" href="#inbound" data-page="inbound"><span class="nav-icon">↙</span>入庫作業</a>
+        <a class="nav-item" href="#outbound" data-page="outbound"><span class="nav-icon">↗</span>出庫作業</a>
+        <a class="nav-item" href="#stocktake" data-page="stocktake"><span class="nav-icon">☷</span>盤點與報廢<span class="nav-dot"></span></a>
+        <a class="nav-item" href="#stocktake-report" data-page="stocktake-report"><span class="nav-icon">▧</span>盤點差異報表</a>
+        <a class="nav-item" href="#field" data-page="field"><span class="nav-icon">▣</span>現場作業</a>
+        <a class="nav-item" href="#locations" data-page="locations"><span class="nav-icon">▦</span>儲位圖</a>
+        <a class="nav-item" href="#reports" data-page="reports"><span class="nav-icon">▥</span>報表分析</a>
+      </nav>
+      <div class="nav-label tools-label">管理</div>
+      <nav class="main-nav"><a class="nav-item" href="#settings" data-page="settings"><span class="nav-icon">⚙</span>基本資料</a></nav>
+      <div class="sidebar-bottom">
+        <div class="cold-card"><div class="cold-card-head"><span class="live-dot"></span>冷鏈環境正常 <span class="cold-arrow">↗</span></div><div class="cold-temp">−21.4<span>°C</span></div><div class="cold-foot"><span>冷凍庫 A 區</span><span>更新於 2 分鐘前</span></div><div class="sparkline"><i style="height:15px"></i><i style="height:21px"></i><i style="height:17px"></i><i style="height:24px"></i><i style="height:20px"></i><i style="height:28px"></i><i style="height:19px"></i><i style="height:26px"></i><i style="height:22px"></i><i style="height:30px"></i><i style="height:24px"></i><i style="height:27px"></i><i style="height:18px"></i><i style="height:23px"></i><i style="height:29px"></i><i style="height:21px"></i></div></div>
+        <div class="profile"><div class="avatar">林</div><div class="profile-copy"><b>林志明</b><small>倉庫管理員</small></div><button class="icon-button profile-menu" aria-label="帳號選單">•••</button></div>
+      </div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar"><div class="breadcrumbs"><span id="top-warehouse">全部倉庫</span><span class="crumb-slash">/</span><b id="breadcrumb-current">倉儲總覽</b></div><div class="topbar-actions"><span class="today-label"><span class="calendar-icon">▦</span><span id="today-date"></span></span><button class="icon-button notification-button" aria-label="通知"><span>♧</span><i></i></button><div class="top-divider"></div><div class="top-user"><span class="avatar avatar-small">林</span><span>林志明</span><span class="chevron">⌄</span></div></div></header>
+      <section class="page-content" id="page-content"></section>
+    </main>
+  </div>
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <dialog id="action-dialog" class="action-dialog"><form id="action-form" method="dialog"><div class="dialog-head"><div><span class="eyebrow" id="dialog-eyebrow">作業登記</span><h2 id="dialog-title">新增作業</h2></div><button type="button" class="icon-button close-dialog" aria-label="關閉">×</button></div><div class="dialog-body" id="dialog-body"></div><div class="dialog-foot"><button type="button" class="button button-quiet close-dialog">取消</button><button type="submit" class="button button-primary" id="dialog-submit">確認新增 <span>→</span></button></div></form></dialog>
+  <script src="inventory.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
