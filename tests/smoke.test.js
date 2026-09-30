@@ -8,6 +8,7 @@ const Inventory = require('../inventory.js');
 const root = path.resolve(__dirname, '..');
 const appSource = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
 const technicalPlan = fs.readFileSync(path.join(root, 'docs', '技術方案.md'), 'utf8');
 
 test('technical plan maps the MVP requirements to an implementable stack', () => {
@@ -78,6 +79,8 @@ function makeDemo(storage) {
 
 test('demo provides its local assets and core navigation', () => {
   assert.match(html, /href="styles\.css"/);
+  assert.match(styles, /\.sidebar\{[^}]*overflow-y:auto/);
+  assert.match(styles, /\.sidebar>\*\{flex-shrink:0\}/);
   assert.match(html, /src="inventory\.js"/);
   assert.match(html, /src="app\.js"/);
   for (const page of ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'stocktake-report', 'field', 'locations', 'reports']) {
