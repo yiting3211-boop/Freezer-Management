@@ -116,6 +116,22 @@ test('demo provides its local assets and core navigation', () => {
   assert.equal((appSource.match(/else if\(dialogMode==='move'\)/g) || []).length, 1);
 });
 
+test('reports derive turnover, expiry, loss and category totals from current demo data', () => {
+  const demo = makeDemo();
+  demo.clickPage('reports');
+  assert.match(demo.content.innerHTML, /408 箱/);
+  assert.match(demo.content.innerHTML, /444 箱/);
+  assert.match(demo.content.innerHTML, /效期風險庫存[\s\S]*個有庫存批次將於 30 天內到期/);
+  assert.doesNotMatch(demo.content.innerHTML, /18\.6|報廢 6 箱 · 盤點差異 2 箱/);
+
+  demo.clickAction('inbound');
+  demo.setValues({name:'報表測試商品', category:'測試分類', qty:'7', batch:'REPORT-01', expiry:'2027-01-01', location:'A-09-01', partner:'測試供應商', temp:'-20', reason:'測試入庫'});
+  demo.submit();
+  demo.clickPage('reports');
+  assert.match(demo.content.innerHTML, /測試分類/);
+  assert.match(demo.content.innerHTML, /7 箱/);
+});
+
 test('outbound guards stock, and inbound, scrap, and count update simulated inventory', () => {
   const demo = makeDemo();
 
