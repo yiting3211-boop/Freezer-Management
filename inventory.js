@@ -4,6 +4,7 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Inventory = api;
 })(typeof globalThis === 'object' ? globalThis : this, function () {
+  const PICK_TASK_TIMEOUT_MS = 30 * 60 * 1000;
   function isCountLocked(countRows, lotId) {
     return countRows.some(row => row.lotId === lotId && ['待盤點', '待確認'].includes(row.status));
   }
@@ -73,6 +74,62 @@
       recordChange(state, {lot: item.id, type: '出庫', quantity: `-${take} 箱`, reason, operator, documentId: doc});
     });
     return {ok: true, plan: allocation, documentId: doc, quantity: qty};
+  }
+
+  function createPickTask(state, {product, warehouseId, quantity, operator = '林志明', partner = '未指定', reason = '', now = Date.now()}) {
+    const qty = Number(quantity);
+    const reserved = new Map();
+    state.pickTasks.filter(task => ['揀貨中', '已揀貨待確認'].includes(task.status)).forEach(task => task.allocations.forEach(row => {
+      reserved.set(row.lotId, (reserved.get(row.lotId) || 0) + row.qty);
+    }));
+    const availableStock = state.stock.map(item => ({...item, qty: item.qty - (reserved.get(item.id) || 0)}));
+    const plan = planPick(availableStock, state.countRows, product, warehouseId, qty);
+    if (!plan || plan.insufficient) return {ok: false, error: '商品可用庫存不足或出庫資料不完整'};
+    const id = `OUT-${now}-${state.pickTasks.length}`;
+    const task = {id, product, warehouseId, quantity: qty, operator, partner, reason, createdAt: now,
+      status: '揀貨中', allocations: plan.map(({item, qty: take}) => ({lotId: item.id, batch: item.batch,
+        location: item.location, inboundAt: item.inboundAt, qty: take,
+        bookQty: state.stock.find(row => row.id === item.id).qty, confirmed: false}))};
+    state.pickTasks.unshift(task);
+    state.workRecords.unshift({id, type: '出庫', item: product,
+      batch: task.allocations.map(row => `${row.batch} ${row.qty}箱 @ ${row.location}`).join('、'),
+      qty: `−${qty} 箱`, partner, operator, time: new Date(now).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}),
+      recordedAt: new Date(now).toISOString(), status: '揀貨中'});
+    return {ok: true, task};
+  }
+
+  function isPickTaskOverdue(task, now = Date.now()) {
+    return ['揀貨中', '已揀貨待確認'].includes(task.status) && now - Number(task.createdAt) >= PICK_TASK_TIMEOUT_MS;
+  }
+
+  function confirmPick(state, {taskId, allocationIndex, now = Date.now()}) {
+    const task = state.pickTasks.find(row => row.id === taskId);
+    if (!task || !['揀貨中', '已揀貨待確認'].includes(task.status)) return {ok: false, error: '此揀貨任務已處理或不存在'};
+    const allocation = task.allocations[Number(allocationIndex)];
+    if (!allocation) return {ok: false, error: '找不到此批揀貨項目'};
+    allocation.confirmed = true;
+    const remaining = task.allocations.filter(row => !row.confirmed).length;
+    if (remaining) {
+      task.status = '已揀貨待確認';
+      const record = state.workRecords.find(row => row.id === task.id);
+      if (record) record.status = task.status;
+      return {ok: true, complete: false, task, remaining};
+    }
+    const plan = task.allocations.map(row => ({item: state.stock.find(item => item.id === row.lotId), qty: row.qty}));
+    if (plan.some(({item, qty}, index) => !item || isCountLocked(state.countRows, item.id) ||
+      item.qty < qty || item.qty !== task.allocations[index].bookQty)) {
+      allocation.confirmed = false;
+      return {ok: false, error: '揀貨期間庫存或盤點狀態已變動，請取消並重新建立出庫單'};
+    }
+    const dispatched = dispatch(state, {product: task.product, warehouseId: task.warehouseId,
+      quantity: task.quantity, operator: task.operator, partner: task.partner,
+      reason: task.reason || '已完成全部批次揀貨確認', documentId: task.id, plan});
+    if (!dispatched.ok) { allocation.confirmed = false; return dispatched; }
+    task.status = '已完成';
+    task.completedAt = now;
+    const record = state.workRecords.find(row => row.id === task.id);
+    if (record) { record.status = '已完成'; record.completedAt = new Date(now).toISOString(); }
+    return {ok: true, complete: true, task, remaining: 0, plan};
   }
 
   function startCount(state, {warehouseId, operator = '林志明', date = new Date().toISOString().slice(0, 10), idPrefix = 'ST'}) {
@@ -150,5 +207,6 @@
     return {ok: true, item, previous, documentId: doc};
   }
 
-  return {isCountLocked, planPick, recordChange, receive, dispatch, startCount, recordCount, submitCount, approveCount, scrap, move};
+  return {PICK_TASK_TIMEOUT_MS, isCountLocked, planPick, recordChange, receive, dispatch, createPickTask, confirmPick,
+    isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, scrap, move};
 });

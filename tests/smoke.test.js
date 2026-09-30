@@ -66,9 +66,9 @@ function makeDemo(storage) {
         return selector === '[data-page]' ? {dataset: {page}} : null;
       }}});
     },
-    clickAction(action, id) {
+    clickAction(action, id, index) {
       listeners['document:click']({preventDefault() {}, target: {closest(selector) {
-        return selector === '[data-action]' ? {dataset: {action, id}} : null;
+        return selector === '[data-action]' ? {dataset: {action, id, index: index === undefined ? undefined : String(index)}} : null;
       }}});
     },
     submit() { listeners.submit({preventDefault() {}, currentTarget: {}}); }
@@ -107,23 +107,25 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.clickAction('outbound');
   assert.match(demo.body.innerHTML, /出庫商品/);
   assert.ok(demo.body.innerHTML.indexOf('冷凍藍莓') < demo.body.innerHTML.indexOf('挪威鮭魚切片'), 'outbound options should follow FEFO order');
+  assert.doesNotMatch(demo.body.innerHTML, /name="pickConfirmation"|name="confirmed"/, 'outbound should not require manual batch/location entry or an extra checkbox');
   demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', qty: '30', partner: '測試客戶', operator: '林志明'});
   demo.submit();
-  assert.ok(demo.toasts.at(-1).includes('核對實際揀貨'));
-  assert.equal(demo.dialog.open, true);
+  assert.ok(demo.toasts.at(-1).includes('揀貨任務已建立'));
+  assert.equal(demo.dialog.open, false);
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /可用庫存 1,653 箱/, 'creating a pick task must not deduct inventory');
 
-  demo.setValues({confirmed: 'yes', qty: '999'});
+  demo.clickAction('outbound');
+  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', qty: '999', partner: '測試客戶', operator: '林志明'});
   demo.submit();
   assert.ok(demo.toasts.at(-1).includes('可用庫存不足'));
   assert.equal(demo.dialog.open, true);
 
-  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', confirmed: 'yes', pickConfirmation: 'WRONG-BATCH@B-03-01', qty: '30', partner: '測試客戶', operator: '林志明'});
-  demo.submit();
-  assert.ok(demo.toasts.at(-1).includes('揀貨清單不符'));
-  assert.equal(demo.dialog.open, true, 'inventory must not be deducted when scanned batch or location differs');
-
-  demo.setValues({product: '澳洲穀飼牛五花', warehouseId: 'WH-NAN', confirmed: 'yes', pickConfirmation: 'B260915-F@B-03-01', qty: '30', partner: '測試客戶', operator: '林志明'});
-  demo.submit();
+  demo.dialog.close();
+  demo.clickPage('outbound');
+  const taskId = demo.content.innerHTML.match(/data-task-id="([^"]+)"/)?.[1];
+  assert.ok(taskId, 'submitted outbound should produce visible pick cards');
+  demo.clickAction('confirm-pick', taskId, 0);
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,623 箱/);
 
@@ -210,8 +212,12 @@ test('two-warehouse acceptance scenario supports receipt, loss count, earliest r
   demo.submit();
   demo.clickAction('outbound');
   assert.match(demo.body.innerHTML, /最早批次 CABBAGE-260901/, 'earlier received cabbage batch should be selected first');
-  demo.setValues({product: '高麗菜', warehouseId: 'WH-NAN', confirmed: 'yes', pickConfirmation: 'CABBAGE-260901@A-01-01', qty: '1', partner: '客戶甲', operator: '林志明'});
+  demo.setValues({product: '高麗菜', warehouseId: 'WH-NAN', qty: '1', partner: '客戶甲', operator: '林志明'});
   demo.submit();
+  demo.clickPage('outbound');
+  const pickId = demo.content.innerHTML.match(/data-task-id="([^"]+)"/)?.[1];
+  assert.ok(pickId);
+  demo.clickAction('confirm-pick', pickId, 0);
 
   demo.clickAction('move');
   demo.setValues({lot: 'LOT-CABBAGE-OLD', location: 'A-05-03', reason: '出貨後整理', operator: '林志明'});
@@ -255,4 +261,14 @@ test('daily warehouse count locks stock until physical counts are submitted and 
   assert.ok(demo.toasts.at(-1).includes('盤點已確認'));
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,167 箱/, 'approved actual count should reconcile the inventory quantity');
+});
+
+test('warehouse overview warns for pick tasks older than the timeout', () => {
+  const values = new Map([['shuangxu-wms-v1', JSON.stringify({pickTasks:[{
+    id:'OUT-OLD', product:'高麗菜', quantity:1, partner:'客戶甲', operator:'林志明', createdAt:0,
+    status:'揀貨中', allocations:[{lotId:'LOT-CABBAGE-OLD', batch:'CABBAGE-260901', location:'A-01-01', inboundAt:'2026-09-01', qty:1, confirmed:false}]
+  }]})]]);
+  const demo = makeDemo({getItem(key) { return values.get(key) ?? null; }, setItem(key, value) { values.set(key, value); }});
+  assert.match(demo.content.innerHTML, /揀貨逾時警示/);
+  assert.match(demo.content.innerHTML, /data-page="outbound"/);
 });

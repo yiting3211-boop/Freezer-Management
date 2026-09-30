@@ -57,3 +57,43 @@ test('inbound, outbound, scrap, and relocation update state with audit trail', (
   assert.equal(received.item.qty, 2);
   assert.deepEqual(state.audit.map(row => row.type), ['報廢', '移庫', '出庫', '入庫']);
 });
+
+test('pick task keeps book stock unchanged after partial confirmation and deducts only after all picks', () => {
+  const state = fixture();
+  state.pickTasks = [];
+  state.workRecords = [];
+  const created = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:6, now:1000});
+  assert.equal(created.ok, true);
+  assert.equal(created.task.allocations.length, 3);
+  assert.equal(state.stock.reduce((sum, row) => sum + row.qty, 0), 9);
+  const partial = Inventory.confirmPick(state, {taskId:created.task.id, allocationIndex:0, now:2000});
+  assert.equal(partial.complete, false);
+  assert.equal(partial.remaining, 2);
+  assert.equal(created.task.status, '已揀貨待確認');
+  assert.equal(state.stock.reduce((sum, row) => sum + row.qty, 0), 9);
+  const second = Inventory.confirmPick(state, {taskId:created.task.id, allocationIndex:1, now:3000});
+  assert.equal(second.complete, false);
+  const complete = Inventory.confirmPick(state, {taskId:created.task.id, allocationIndex:2, now:4000});
+  assert.equal(complete.complete, true);
+  assert.equal(state.stock.reduce((sum, row) => sum + row.qty, 0), 3);
+  assert.equal(created.task.status, '已完成');
+  assert.equal(state.workRecords[0].status, '已完成');
+  assert.equal(state.audit.filter(row => row.type === '出庫').length, 3);
+});
+
+test('pick task overdue threshold is thirty minutes and does not flag completed work', () => {
+  const state = fixture(); state.pickTasks = []; state.workRecords = [];
+  const {task} = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:1, now:1000});
+  assert.equal(Inventory.PICK_TASK_TIMEOUT_MS, 30 * 60 * 1000);
+  assert.equal(Inventory.isPickTaskOverdue(task, 1000 + Inventory.PICK_TASK_TIMEOUT_MS - 1), false);
+  assert.equal(Inventory.isPickTaskOverdue(task, 1000 + Inventory.PICK_TASK_TIMEOUT_MS), true);
+  task.status = '已完成';
+  assert.equal(Inventory.isPickTaskOverdue(task, 1000 + Inventory.PICK_TASK_TIMEOUT_MS * 2), false);
+});
+
+test('open tasks reserve planned quantities so parallel pickers cannot oversubscribe a batch', () => {
+  const state = fixture(); state.pickTasks = []; state.workRecords = [];
+  assert.equal(Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:9, now:1000}).ok, true);
+  const second = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:1, now:2000});
+  assert.equal(second.ok, false);
+});
