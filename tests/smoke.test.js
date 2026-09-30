@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const Inventory = require('../inventory.js');
 
 const root = path.resolve(__dirname, '..');
 const appSource = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
@@ -25,13 +26,13 @@ function makeDemo(storage) {
   const toasts = [];
   const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'reports', 'settings']
     .map(page => ({dataset: {page}, classList: {toggle() {}}}));
-  const content = {innerHTML: '', addEventListener(type, fn) { listeners[`content:${type}`] = fn; }};
+  const content = {innerHTML: '', addEventListener(type, fn) { (listeners[`content:${type}`] ||= []).push(fn); }};
   const values = {};
   const filterValues = {};
   const stockTable = {innerHTML: ''};
   const node = () => ({textContent: '', innerHTML: '', hidden: false, addEventListener(type, fn) { listeners[type] = fn; }});
   const nodes = new Map([
-    ['#page-content', content], ['#today-date', node()], ['#breadcrumb-current', node()],
+    ['#page-content', content], ['#today-date', node()], ['#breadcrumb-current', node()], ['#top-warehouse', node()],
     ['#action-dialog', {open: false, showModal() { this.open = true; }, close() { this.open = false; }}],
     ['#action-form', node()], ['#dialog-body', node()], ['#dialog-title', node()],
     ['#dialog-submit', node()], ['#dialog-eyebrow', node()],
@@ -47,7 +48,7 @@ function makeDemo(storage) {
   class MockFormData {
     constructor() { this.entries = () => Object.entries(values); }
   }
-  const context = {document, FormData: MockFormData, setTimeout() {}, URL, Blob, Intl, Date, Number, String, Object, localStorage: storage};
+  const context = {document, Inventory, FormData: MockFormData, setTimeout() {}, URL, Blob, Intl, Date, Number, String, Object, localStorage: storage};
   vm.runInNewContext(appSource, context, {filename: 'app.js'});
   return {
     content,
@@ -55,9 +56,10 @@ function makeDemo(storage) {
     dialog: nodes.get('#action-dialog'),
     body: nodes.get('#dialog-body'),
     title: nodes.get('#dialog-title'),
+    topWarehouse: nodes.get('#top-warehouse'),
     submitButton: nodes.get('#dialog-submit'),
     setValues(next) { Object.assign(values, next); },
-    chooseWarehouse(id) { filterValues['#warehouse-filter'] = id; listeners['content:input']({target: {id: 'warehouse-filter'}}); },
+    chooseWarehouse(id) { filterValues['#warehouse-filter'] = id; for (const fn of listeners['content:input'] || []) fn({target: {id: 'warehouse-filter'}}); },
     stockRows() { return stockTable.innerHTML; },
     clickPage(page) {
       listeners['document:click']({preventDefault() {}, target: {closest(selector) {
@@ -75,6 +77,7 @@ function makeDemo(storage) {
 
 test('demo provides its local assets and core navigation', () => {
   assert.match(html, /href="styles\.css"/);
+  assert.match(html, /src="inventory\.js"/);
   assert.match(html, /src="app\.js"/);
   for (const page of ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'reports']) {
     assert.match(html, new RegExp(`data-page="${page}"`));
@@ -84,11 +87,18 @@ test('demo provides its local assets and core navigation', () => {
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /庫存明細/);
   assert.match(demo.content.innerHTML, /去骨雞腿排/);
+  demo.chooseWarehouse('WH-SECOND');
+  assert.equal(demo.topWarehouse.textContent, '竹南第二冷凍倉庫');
+  demo.chooseWarehouse('全部倉庫');
   demo.clickAction('detail', 'LOT-260912-04');
   assert.equal(demo.title.textContent, '去骨雞腿排');
   demo.clickAction('inbound');
   assert.equal(demo.submitButton.hidden, false, 'action button should return after opening a read-only detail dialog');
   assert.match(demo.body.innerHTML, /name="temp" type="number" value="-20\.5"\s+required/, 'negative receiving temperature must be accepted');
+  assert.equal((appSource.match(/else if\(mode==='start-count'\)/g) || []).length, 1);
+  assert.equal((appSource.match(/else if\(mode==='record-count'\)/g) || []).length, 1);
+  assert.equal((appSource.match(/else if\(mode==='confirm-count'\)/g) || []).length, 1);
+  assert.equal((appSource.match(/else if\(dialogMode==='move'\)/g) || []).length, 1);
 });
 
 test('outbound guards stock, and inbound, scrap, and count update simulated inventory', () => {
@@ -123,6 +133,9 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /測試新品/);
   assert.match(demo.content.innerHTML, /可用庫存 1,633 箱/);
+  demo.clickPage('inbound');
+  assert.match(demo.content.innerHTML, /今日入庫單[\s\S]*?<div class="metric-value">1<small>筆<\/small>/);
+  assert.match(demo.content.innerHTML, /今日入庫數量[\s\S]*?<div class="metric-value">10<small>箱<\/small>/);
 
   demo.clickAction('scrap');
   demo.setValues({lot: 'LOT-260901-07', qty: '6', reason: '腐爛／變質', operator: '林志明'});
@@ -241,5 +254,5 @@ test('daily warehouse count locks stock until physical counts are submitted and 
   demo.submit();
   assert.ok(demo.toasts.at(-1).includes('盤點已確認'));
   demo.clickPage('inventory');
-  assert.match(demo.content.innerHTML, /可用庫存 1,649 箱/, 'approved actual count should reconcile the inventory quantity');
+  assert.match(demo.content.innerHTML, /可用庫存 1,167 箱/, 'approved actual count should reconcile the inventory quantity');
 });
