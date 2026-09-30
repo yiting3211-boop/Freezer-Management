@@ -192,6 +192,24 @@
     return {ok: true, complete: true, task, remaining: 0, plan};
   }
 
+  function cancelPickTask(state, {taskId, reason, operator = '林志明', now = Date.now()}) {
+    const task = state.pickTasks.find(row => row.id === taskId);
+    if (!task || !['揀貨中', '已揀貨待確認'].includes(task.status))
+      return {ok:false, error:'只有處理中的揀貨任務可以取消'};
+    if (!String(reason || '').trim()) return {ok:false, error:'請填寫取消原因'};
+    task.status = '已取消';
+    task.cancellationReason = String(reason).trim();
+    task.cancelledBy = operator;
+    task.cancelledAt = now;
+    task.allocations.forEach(row => recordChange(state, {lot:row.pickedLotId || row.lotId,
+      type:'取消出庫', quantity:`釋放 ${row.qty} 箱保留量`, reason:task.cancellationReason,
+      operator, documentId:task.id}));
+    const record = recordFor(state, task.id);
+    if (record) Object.assign(record, {status:'已取消', cancellationReason:task.cancellationReason,
+      cancelledBy:operator, cancelledAt:new Date(now).toISOString()});
+    return {ok:true, task, record};
+  }
+
   function startCount(state, {warehouseId, operator = '林志明', date = new Date().toISOString().slice(0, 10), idPrefix = 'ST'}) {
     const lots = state.stock.filter(item => item.warehouseId === warehouseId);
     if (!warehouseId || !lots.length) return {ok: false, error: '所選倉庫沒有可盤點的批次'};
@@ -287,5 +305,5 @@
 
   return {PICK_TASK_TIMEOUT_MS, LONG_STORAGE_DAYS, EXPIRY_WARNING_DAYS, isCountLocked, planPick, earliestLot,
     isLongStored, isExpiringSoon, recordChange, receive, dispatch, createPickTask, confirmPick,
-    locationMap, recommendLocation, isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, submitScrap, approveScrap, move};
+    locationMap, recommendLocation, isPickTaskOverdue, cancelPickTask, startCount, recordCount, submitCount, approveCount, submitScrap, approveScrap, move};
 });

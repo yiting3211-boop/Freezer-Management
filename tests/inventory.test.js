@@ -126,6 +126,43 @@ test('pick task keeps book stock unchanged after partial confirmation and deduct
   assert.equal(state.audit.filter(row => row.type === '出庫').length, 3);
 });
 
+test('cancelled pick tasks release reservations, unblock counts, and retain cancellation audit details', () => {
+  const state = fixture();
+  state.pickTasks = [];
+  state.workRecords = [];
+  const created = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:6, operator:'揀貨員甲', now:1000});
+  const originalQty = state.stock.reduce((sum,item)=>sum+item.qty,0);
+  assert.equal(Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:4}).ok, false,
+    'active task allocations must remain reserved');
+  assert.equal(Inventory.startCount(state, {warehouseId:'W'}).ok, false, 'active tasks block warehouse counts');
+
+  const cancelled = Inventory.cancelPickTask(state, {taskId:created.task.id, reason:'客戶取消訂單', operator:'主管甲', now:2000});
+  assert.equal(cancelled.ok, true);
+  assert.equal(created.task.status, '已取消');
+  assert.equal(created.task.cancellationReason, '客戶取消訂單');
+  assert.equal(state.stock.reduce((sum,item)=>sum+item.qty,0), originalQty, 'cancelling must not debit stock');
+  assert.equal(state.workRecords.find(row=>row.id===created.task.id).status, '已取消');
+  assert.equal(state.workRecords.find(row=>row.id===created.task.id).cancellationReason, '客戶取消訂單');
+  assert.ok(state.audit.every(row=>row.reason==='客戶取消訂單'&&row.operator==='主管甲'));
+  assert.equal(Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:9}).ok, true,
+    'cancelled allocations must become available to new orders');
+  state.pickTasks.forEach(task=>{if(task.status!=='已取消')Inventory.cancelPickTask(state,{taskId:task.id,reason:'測試清理'})});
+  assert.equal(Inventory.startCount(state, {warehouseId:'W'}).ok, true, 'counts resume after active tasks are cancelled');
+});
+
+test('completed pick tasks cannot be cancelled', () => {
+  const state = fixture();
+  state.pickTasks=[];
+  state.workRecords=[];
+  const {task}=Inventory.createPickTask(state,{product:'高麗菜',warehouseId:'W',quantity:6,now:1000});
+  for(let index=0;index<task.allocations.length;index++)
+    assert.equal(Inventory.confirmPick(state,{taskId:task.id,allocationIndex:index,now:2000+index}).ok,true);
+  const before=state.stock.reduce((sum,item)=>sum+item.qty,0);
+  assert.equal(task.status,'已完成');
+  assert.equal(Inventory.cancelPickTask(state,{taskId:task.id,reason:'太晚取消'}).ok,false);
+  assert.equal(state.stock.reduce((sum,item)=>sum+item.qty,0),before);
+});
+
 test('pick task overdue threshold is thirty minutes and does not flag completed work', () => {
   const state = fixture(); state.pickTasks = []; state.workRecords = [];
   const {task} = Inventory.createPickTask(state, {product:'高麗菜', warehouseId:'W', quantity:1, now:1000});

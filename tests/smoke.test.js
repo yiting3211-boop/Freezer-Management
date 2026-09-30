@@ -135,6 +135,36 @@ test('reports derive turnover, expiry, loss and category totals from current dem
   assert.match(demo.content.innerHTML, /7 箱/);
 });
 
+test('pick tasks can be cancelled from field mode after entering a reason and confirming', () => {
+  const demo=makeDemo();
+  demo.clickAction('outbound');
+  demo.setValues({product:'澳洲穀飼牛五花',warehouseId:'WH-NAN',qty:'20',partner:'測試客戶',operator:'林志明'});
+  demo.submit();
+  demo.clickPage('outbound');
+  const taskId=demo.content.innerHTML.match(/data-task-id="([^"]+)"/)?.[1];
+  assert.ok(taskId);
+  assert.match(demo.content.innerHTML,/取消任務/,'outbound task cards should offer cancellation');
+  demo.clickPage('field');
+  assert.match(demo.content.innerHTML,/data-action="cancel-pick-task"/,'field task should offer cancellation');
+  demo.clickAction('cancel-pick-task',taskId);
+  assert.match(demo.body.innerHTML,/取消原因/);
+  demo.setValues({reason:'客戶取消訂單',operator:'林志明'});
+  demo.submit();
+  assert.equal(demo.title.textContent,'確定取消此揀貨任務？','first submit should present a second confirmation step');
+  assert.match(demo.body.innerHTML,/客戶取消訂單/);
+  demo.submit();
+  assert.ok(demo.toasts.at(-1).includes('庫存數量未變'));
+  demo.clickPage('outbound');
+  assert.doesNotMatch(demo.content.innerHTML,new RegExp(`data-task-id="${taskId}"`));
+  assert.match(demo.content.innerHTML,/已取消/,'outbound work record should reflect the cancellation status');
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML,/可用庫存 1,653 箱/,'cancelling the task must not debit inventory');
+  demo.clickAction('start-count');
+  demo.setValues({warehouseId:'WH-NAN',operator:'林志明'});
+  demo.submit();
+  assert.ok(demo.toasts.at(-1).includes('盤點任務已建立'),'cancellation must allow count to start');
+});
+
 test('outbound guards stock, and inbound, scrap, and count update simulated inventory', () => {
   const demo = makeDemo();
 
