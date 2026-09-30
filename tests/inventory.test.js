@@ -53,9 +53,27 @@ test('inbound, outbound, scrap, and relocation update state with audit trail', (
   const plan = Inventory.planPick(state.stock, state.countRows, '青江菜', 'W', 2);
   assert.equal(Inventory.dispatch(state, {product:'青江菜', warehouseId:'W', quantity:2, plan}).ok, true);
   assert.equal(Inventory.move(state, {lotId:received.item.id, location:'C-2', reason:'整理'}).ok, true);
-  assert.equal(Inventory.scrap(state, {lotId:received.item.id, quantity:1, reason:'破損'}).ok, true);
+  const pendingScrap = Inventory.submitScrap(state, {lotId:received.item.id, quantity:1, reason:'破損'});
+  assert.equal(pendingScrap.ok, true);
+  assert.equal(received.item.qty, 3, 'pending scrap must not affect available stock');
+  assert.equal(Inventory.approveScrap(state, {rowId:pendingScrap.row.id}).ok, true);
   assert.equal(received.item.qty, 2);
   assert.deepEqual(state.audit.map(row => row.type), ['報廢', '移庫', '出庫', '入庫']);
+});
+
+test('pending scrap preserves stock; approval deducts once and writes a linked audit entry', () => {
+  const state = fixture();
+  const submitted = Inventory.submitScrap(state, {lotId:'old-early', quantity:2, reason:'腐爛／不可售', operator:'李太太'});
+  assert.equal(submitted.ok, true);
+  assert.equal(state.stock.find(item => item.id === 'old-early').qty, 3);
+  assert.equal(state.audit.length, 0);
+  const approved = Inventory.approveScrap(state, {rowId:submitted.row.id, operator:'主管甲'});
+  assert.equal(approved.ok, true);
+  assert.equal(approved.item.qty, 1);
+  assert.equal(submitted.row.status, '已確認報廢');
+  assert.equal(approved.audit.type, '報廢');
+  assert.equal(approved.audit.documentId, submitted.row.id);
+  assert.equal(Inventory.approveScrap(state, {rowId:submitted.row.id}).ok, false, 'approval must not deduct twice');
 });
 
 test('pick task keeps book stock unchanged after partial confirmation and deducts only after all picks', () => {

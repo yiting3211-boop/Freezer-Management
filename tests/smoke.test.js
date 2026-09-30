@@ -24,7 +24,7 @@ test('technical plan maps the MVP requirements to an implementable stack', () =>
 function makeDemo(storage) {
   const listeners = {};
   const toasts = [];
-  const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'field', 'locations', 'reports', 'settings']
+  const nav = ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'stocktake-report', 'field', 'locations', 'reports', 'settings']
     .map(page => ({dataset: {page}, classList: {toggle() {}}}));
   const content = {innerHTML: '', addEventListener(type, fn) { (listeners[`content:${type}`] ||= []).push(fn); }};
   const values = {};
@@ -60,6 +60,7 @@ function makeDemo(storage) {
     submitButton: nodes.get('#dialog-submit'),
     setValues(next) { Object.assign(values, next); },
     chooseWarehouse(id) { filterValues['#warehouse-filter'] = id; for (const fn of listeners['content:input'] || []) fn({target: {id: 'warehouse-filter'}}); },
+    filterCountWarehouse(id) { for (const fn of listeners['content:change'] || []) fn({target: {id: 'count-report-warehouse', value: id}}); },
     stockRows() { return stockTable.innerHTML; },
     clickPage(page) {
       listeners['document:click']({preventDefault() {}, target: {closest(selector) {
@@ -79,7 +80,7 @@ test('demo provides its local assets and core navigation', () => {
   assert.match(html, /href="styles\.css"/);
   assert.match(html, /src="inventory\.js"/);
   assert.match(html, /src="app\.js"/);
-  for (const page of ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'field', 'locations', 'reports']) {
+  for (const page of ['dashboard', 'inventory', 'inbound', 'outbound', 'stocktake', 'stocktake-report', 'field', 'locations', 'reports']) {
     assert.match(html, new RegExp(`data-page="${page}"`));
   }
   const demo = makeDemo();
@@ -160,6 +161,13 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.setValues({lot: 'LOT-260901-07', qty: '6', reason: '腐爛／變質', operator: '林志明'});
   demo.submit();
   demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML, /可用庫存 1,633 箱/, 'pending scrap must not change available stock');
+  demo.clickPage('stocktake');
+  const pendingScrapId = demo.content.innerHTML.match(/data-action="confirm-scrap" data-id="([^"]+)"/)?.[1];
+  assert.ok(pendingScrapId, 'pending scrap should wait for supervisor approval');
+  demo.clickAction('confirm-scrap', pendingScrapId);
+  demo.submit();
+  demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,627 箱/);
 
   demo.clickAction('stocktake');
@@ -177,6 +185,17 @@ test('outbound guards stock, and inbound, scrap, and count update simulated inve
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /可用庫存 1,621 箱/);
   assert.ok(demo.toasts.at(-1).includes('盤點已確認'));
+  demo.clickPage('stocktake-report');
+  assert.match(demo.content.innerHTML, /盤點差異報表/);
+  assert.match(demo.content.innerHTML, /盤點與報廢歷史/);
+  assert.match(demo.content.innerHTML, /例行盤點差異/);
+  demo.filterCountWarehouse('WH-NAN');
+  assert.match(demo.content.innerHTML, /例行盤點差異/, 'warehouse filter should retain this warehouse\'s confirmed variance');
+  demo.clickAction('record-detail', pendingCountId);
+  assert.match(demo.body.innerHTML, new RegExp(pendingCountId));
+  assert.match(demo.body.innerHTML, /例行盤點差異/);
+  assert.match(demo.body.innerHTML, /實盤數量／報廢量[\s\S]*80 箱/);
+  assert.doesNotMatch(demo.body.innerHTML, /84 箱|外箱破損/);
 });
 
 test('inventory changes persist across reloads and are traceable to their source', () => {

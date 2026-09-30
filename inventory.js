@@ -245,15 +245,28 @@
     return {ok: true, item, row, diff, audit};
   }
 
-  function scrap(state, {lotId, quantity, reason, operator = '林志明', documentId}) {
+  function submitScrap(state, {lotId, quantity, reason, operator = '林志明', date = new Date().toISOString().slice(0, 10)}) {
     const item = state.stock.find(row => row.id === lotId), qty = Number(quantity);
     if (!item || !Number.isFinite(qty) || qty <= 0 || qty > item.qty || !reason || isCountLocked(state.countRows, lotId))
       return {ok: false, error: '報廢資料無效或批次盤點中'};
-    item.qty -= qty;
+    const row = {id:`SC-${Date.now()}`, lotId, warehouseId:item.warehouseId, scope:`${item.location} · ${item.name} · ${item.batch}`,
+      date, operator, bookQty:item.qty, quantity:qty, diff:`${qty} 箱`, reason, status:'待確認報廢'};
+    state.countRows.unshift(row);
+    return {ok:true, item, row};
+  }
+
+  function approveScrap(state, {rowId, operator = '林志明'}) {
+    const row = state.countRows.find(entry => entry.id === rowId);
+    const item = row && state.stock.find(entry => entry.id === row.lotId);
+    if (!row || row.status !== '待確認報廢' || !item) return {ok:false, error:'找不到待確認報廢單'};
+    if (isCountLocked(state.countRows.filter(entry => entry.id !== row.id), item.id) || item.qty !== row.bookQty || row.quantity > item.qty)
+      return {ok:false, stale:true, error:'報廢期間庫存或盤點狀態已變動，請重新確認'};
+    item.qty -= row.quantity;
     if (item.qty === 0) item.status = '待報廢';
-    const doc = documentId || `SC-${Date.now()}`;
-    recordChange(state, {lot: item.id, type: '報廢', quantity: `-${qty} 箱`, reason, operator, documentId: doc});
-    return {ok: true, item, quantity: qty, documentId: doc};
+    row.status = '已確認報廢';
+    row.approvedBy = operator;
+    const audit = recordChange(state, {lot:item.id, type:'報廢', quantity:`-${row.quantity} 箱`, reason:row.reason, operator, documentId:row.id});
+    return {ok:true, item, row, audit};
   }
 
   function move(state, {lotId, location, reason, operator = '林志明', documentId}) {
@@ -270,5 +283,5 @@
 
   return {PICK_TASK_TIMEOUT_MS, LONG_STORAGE_DAYS, EXPIRY_WARNING_DAYS, isCountLocked, planPick, earliestLot,
     isLongStored, isExpiringSoon, recordChange, receive, dispatch, createPickTask, confirmPick,
-    locationMap, recommendLocation, isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, scrap, move};
+    locationMap, recommendLocation, isPickTaskOverdue, startCount, recordCount, submitCount, approveCount, submitScrap, approveScrap, move};
 });
