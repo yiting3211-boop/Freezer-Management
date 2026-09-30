@@ -34,7 +34,7 @@ function makeDemo(storage, {now} = {}) {
   let exportedBlob;
   const node = () => ({textContent: '', innerHTML: '', hidden: false, addEventListener(type, fn) { listeners[type] = fn; }});
   const nodes = new Map([
-    ['#page-content', content], ['#today-date', node()], ['#breadcrumb-current', node()], ['#top-warehouse', node()],
+    ['#page-content', content], ['#today-date', node()], ['#breadcrumb-current', node()], ['#top-warehouse', node()], ['#nav-batch-count', node()],
     ['#action-dialog', {open: false, showModal() { this.open = true; }, close() { this.open = false; }}],
     ['#action-form', node()], ['#dialog-body', node()], ['#dialog-title', node()],
     ['#dialog-submit', node()], ['#dialog-eyebrow', node()],
@@ -63,6 +63,7 @@ function makeDemo(storage, {now} = {}) {
     body: nodes.get('#dialog-body'),
     title: nodes.get('#dialog-title'),
     topWarehouse: nodes.get('#top-warehouse'),
+    navBatchCount: nodes.get('#nav-batch-count'),
     submitButton: nodes.get('#dialog-submit'),
     setValues(next) { Object.assign(values, next); },
     chooseWarehouse(id) { filterValues['#warehouse-filter'] = id; for (const fn of listeners['content:input'] || []) fn({target: {id: 'warehouse-filter'}}); },
@@ -105,6 +106,11 @@ test('demo provides its local assets and core navigation', () => {
   }
   const demo = makeDemo();
   assert.match(demo.content.innerHTML, /庫存趨勢/);
+  assert.match(demo.content.innerHTML, /庫存批次/);
+  assert.match(demo.content.innerHTML, /11<small>批次<\/small>/);
+  assert.match(demo.content.innerHTML, /10 個使用中儲位/);
+  assert.doesNotMatch(demo.content.innerHTML, /較上週同期|4\.8%|128<small>項/);
+  assert.equal(demo.navBatchCount.textContent, '11');
   demo.clickPage('inventory');
   assert.match(demo.content.innerHTML, /庫存明細/);
   assert.match(demo.content.innerHTML, /去骨雞腿排/);
@@ -134,6 +140,15 @@ test('demo provides its local assets and core navigation', () => {
   assert.equal((appSource.match(/else if\(mode==='record-count'\)/g) || []).length, 1);
   assert.equal((appSource.match(/else if\(mode==='confirm-count'\)/g) || []).length, 1);
   assert.equal((appSource.match(/else if\(dialogMode==='move'\)/g) || []).length, 1);
+});
+
+test('basic data counts come from inventory and records, not fixed demo totals', () => {
+  const demo = makeDemo();
+  demo.clickPage('settings');
+  assert.match(demo.content.innerHTML, /商品主檔 · 10 項/);
+  assert.match(demo.content.innerHTML, /倉庫位置 · 10 個使用中儲位/);
+  assert.match(demo.content.innerHTML, /合作夥伴 · 4 家/);
+  assert.doesNotMatch(demo.content.innerHTML, /128 項|36 家|12 個儲位|使用者與角色 · 8 位/);
 });
 
 test('reports derive turnover, expiry, loss and category totals from current demo data', () => {

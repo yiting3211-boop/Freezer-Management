@@ -145,7 +145,7 @@
     state.pickTasks.unshift(task);
     state.workRecords.unshift({id, type: '出庫', item: product,
       batch: task.allocations.map(row => `${row.batch} ${row.qty}箱 @ ${row.location}`).join('、'),
-      qty: `−${qty} 箱`, partner, operator, time: new Date(now).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}),
+      qty: `−${qty} 箱`, partner, operator, warehouseId, time: new Date(now).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}),
       recordedAt: new Date(now).toISOString(), status: '揀貨中'});
     return {ok: true, task};
   }
