@@ -205,6 +205,16 @@ test('long-storage and near-expiry warnings use configurable day thresholds', ()
   assert.equal(Inventory.isExpiringSoon({...item, expiry:'2026-12-01'}, now), false);
 });
 
+test('expiry warning handles the thirty-day boundary, expired dates and missing or invalid dates', () => {
+  const now = new Date(2026, 8, 30, 12, 0, 0).getTime();
+  assert.equal(Inventory.isExpiringSoon({expiry:'2026-10-30'}, now), true, 'exactly thirty calendar days must warn');
+  assert.equal(Inventory.isExpiringSoon({expiry:'2026-10-31'}, now), false, 'thirty-one days must not warn');
+  assert.equal(Inventory.isExpiringSoon({expiry:'2026-09-29'}, now), false, 'already expired stock is outside upcoming-expiry range');
+  assert.equal(Inventory.isExpiringSoon({expiry:'2026-09-30'}, now), true, 'today is within the warning range');
+  assert.equal(Inventory.isExpiringSoon({expiry:''}, now), false);
+  assert.equal(Inventory.isExpiringSoon({expiry:'not-a-date'}, now), false);
+});
+
 test('location map marks empty, occupied and counting bins and recommends an empty slot', () => {
   const state = fixture();
   state.stock[0].location = 'A-01-01';

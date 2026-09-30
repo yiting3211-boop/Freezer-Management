@@ -31,6 +31,7 @@ function makeDemo(storage) {
   const values = {};
   const filterValues = {};
   const stockTable = {innerHTML: ''};
+  let exportedBlob;
   const node = () => ({textContent: '', innerHTML: '', hidden: false, addEventListener(type, fn) { listeners[type] = fn; }});
   const nodes = new Map([
     ['#page-content', content], ['#today-date', node()], ['#breadcrumb-current', node()], ['#top-warehouse', node()],
@@ -44,12 +45,12 @@ function makeDemo(storage) {
     querySelector(selector) { return nodes.get(selector) || (selector in filterValues ? {value: filterValues[selector]} : null); },
     querySelectorAll(selector) { return selector === '[data-page]' ? nav : []; },
     addEventListener(type, fn) { listeners[`document:${type}`] = fn; },
-    createElement() { return {className: '', textContent: ''}; }
+    createElement() { return {className: '', textContent: '', click() {}}; }
   };
   class MockFormData {
     constructor() { this.entries = () => Object.entries(values); }
   }
-  const context = {document, Inventory, FormData: MockFormData, setTimeout() {}, URL, Blob, Intl, Date, Number, String, Object, localStorage: storage};
+  const context = {document, Inventory, FormData: MockFormData, setTimeout() {}, URL:{createObjectURL(blob){exportedBlob=blob;return 'blob:test'},revokeObjectURL(){}}, Blob, Intl, Date, Number, String, Object, localStorage: storage};
   vm.runInNewContext(appSource, context, {filename: 'app.js'});
   return {
     content,
@@ -61,6 +62,7 @@ function makeDemo(storage) {
     submitButton: nodes.get('#dialog-submit'),
     setValues(next) { Object.assign(values, next); },
     chooseWarehouse(id) { filterValues['#warehouse-filter'] = id; for (const fn of listeners['content:input'] || []) fn({target: {id: 'warehouse-filter'}}); },
+    filterStatus(status) { filterValues['#status-filter'] = status; for (const fn of listeners['content:input'] || []) fn({target: {id: 'status-filter'}}); },
     filterCountWarehouse(id) { for (const fn of listeners['content:change'] || []) fn({target: {id: 'count-report-warehouse', value: id}}); },
     stockRows() { return stockTable.innerHTML; },
     clickPage(page) {
@@ -73,7 +75,8 @@ function makeDemo(storage) {
         return selector === '[data-action]' ? {dataset: {action, id, index: index === undefined ? undefined : String(index)}} : null;
       }}});
     },
-    submit() { listeners.submit({preventDefault() {}, currentTarget: {}}); }
+    submit() { listeners.submit({preventDefault() {}, currentTarget: {}}); },
+    exportedCsv() { return exportedBlob?.text(); }
   };
 }
 
@@ -133,6 +136,41 @@ test('reports derive turnover, expiry, loss and category totals from current dem
   demo.clickPage('reports');
   assert.match(demo.content.innerHTML, /測試分類/);
   assert.match(demo.content.innerHTML, /7 箱/);
+});
+
+test('expiry labels, filters, overview and CSV use calculated dates rather than stored status', async () => {
+  const futureExpiry=new Date(Date.now()+20*86400000).toISOString().slice(0,10);
+  const saved={stock:[
+    {id:'STALE-EXPIRY',sku:'T-1',name:'舊效期旗標',category:'其他',batch:'OLD-STATUS',location:'A-08-01',qty:2,unit:'箱',expiry:'2099-12-31',status:'即將到期',temp:'-20°C',warehouseId:'WH-NAN',inboundAt:'2026-09-01T08:00'},
+    {id:'SCRAP-STATUS',sku:'T-2',name:'已報廢品',category:'其他',batch:'SCRAP-01',location:'A-08-02',qty:0,unit:'箱',expiry:'2099-12-31',status:'待報廢',temp:'-20°C',warehouseId:'WH-NAN',inboundAt:'2026-09-01T08:00'}
+  ]};
+  const storage={getItem(){return JSON.stringify(saved)},setItem(){}};
+  const demo=makeDemo(storage);
+  demo.clickAction('inbound');
+  demo.setValues({name:'動態效期商品',category:'蔬菜',qty:'5',batch:'EXPIRY-20D',expiry:futureExpiry,location:'A-08-03',partner:'測試供應商',temp:'-20',reason:'測試效期'});
+  demo.submit();
+  demo.clickPage('inventory');
+  assert.match(demo.content.innerHTML,/動態效期商品[\s\S]*即將到期/,'new inbound within thirty days should be dynamically marked');
+  demo.filterStatus('即將到期');
+  assert.match(demo.stockRows(),/動態效期商品/);
+  assert.doesNotMatch(demo.stockRows(),/舊效期旗標/,'stale stored expiry status should not drive the filter');
+  demo.clickPage('dashboard');
+  assert.match(demo.content.innerHTML,/動態效期商品/,'overview expiry list should use the same calculated status');
+  demo.clickPage('inventory');
+  demo.clickAction('export');
+  const initialCsv=await demo.exportedCsv();
+  assert.match(initialCsv,/EXPIRY-20D[^\r\n]*即將到期/);
+  assert.match(initialCsv,/OLD-STATUS[^\r\n]*正常/);
+  assert.match(initialCsv,/SCRAP-01[^\r\n]*待報廢/);
+
+  demo.clickAction('start-count');
+  demo.setValues({warehouseId:'WH-NAN',operator:'林志明'});
+  demo.submit();
+  demo.clickPage('inventory');
+  demo.filterStatus('盤點中');
+  assert.match(demo.stockRows(),/動態效期商品[\s\S]*盤點中/,'count lock should take precedence as a dynamic status');
+  demo.clickAction('export');
+  assert.match(await demo.exportedCsv(),/EXPIRY-20D[^\r\n]*盤點中/);
 });
 
 test('pick tasks can be cancelled from field mode after entering a reason and confirming', () => {
